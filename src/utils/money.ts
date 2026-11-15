@@ -33,6 +33,20 @@ export function toKop(rub: number): number {
   return kop;
 }
 
+/** Процент скидки из внешнего API: число или строка с числом, от 0 до 100. */
+export function parsePercent(raw: unknown): number {
+  const value = typeof raw === "string" && raw.trim() !== "" ? Number(raw.trim()) : raw;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+    throw new Error(`invalid discount percent: ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+/** Сумма после скидки, в копейках. Округление — до ближайшей копейки. */
+export function applyDiscount(amountKop: number, percent: number): number {
+  return Math.round((amountKop * (100 - percent)) / 100);
+}
+
 /** Копейки → рубли для ответа API. */
 export function fromKop(kop: number): number {
   return kop / 100;

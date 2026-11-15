@@ -13,9 +13,9 @@ describe("GET /customers/:id/daily-totals", () => {
     const res = await dailyTotals(ctx.app, "c_1", "2026-02-09", "2026-02-11");
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual([
-      { date: "2026-02-09", total: 0 },
-      { date: "2026-02-10", total: 1000 },
-      { date: "2026-02-11", total: 349 },
+      { date: "2026-02-09", total: 0, gross: 0, discount: 0, net: 0 },
+      { date: "2026-02-10", total: 1000, gross: 1000, discount: 0, net: 1000 },
+      { date: "2026-02-11", total: 349, gross: 349, discount: 0, net: 349 },
     ]);
   });
 
@@ -41,7 +41,7 @@ describe("GET /customers/:id/daily-totals", () => {
     await postWebhook(ctx.app, apiOrder({ amount: 700, status: "pending" }));
     await postWebhook(ctx.app, apiOrder({ amount: 900, status: "refunded" }));
     const res = await dailyTotals(ctx.app, "c_1", "2026-02-10", "2026-02-10");
-    expect(res.json()).toEqual([{ date: "2026-02-10", total: 500 }]);
+    expect(res.json()).toEqual([{ date: "2026-02-10", total: 500, gross: 500, discount: 0, net: 500 }]);
   });
 
   it("учитывает только заказы этого клиента", async () => {
@@ -49,7 +49,7 @@ describe("GET /customers/:id/daily-totals", () => {
     await postWebhook(ctx.app, apiOrder({ amount: 500 }));
     await postWebhook(ctx.app, apiOrder({ amount: 800, customerId: "c_2" }));
     const res = await dailyTotals(ctx.app, "c_2", "2026-02-10", "2026-02-10");
-    expect(res.json()).toEqual([{ date: "2026-02-10", total: 800 }]);
+    expect(res.json()).toEqual([{ date: "2026-02-10", total: 800, gross: 800, discount: 0, net: 800 }]);
   });
 
   it("таймзона клиента берётся из API один раз", async () => {
@@ -68,5 +68,52 @@ describe("GET /customers/:id/daily-totals", () => {
   it("неизвестный клиент — 404", async () => {
     const res = await dailyTotals(ctx.app, "nobody", "2026-02-10", "2026-02-10");
     expect(res.statusCode).toBe(404);
+  });
+
+  describe("скидки", () => {
+    const day = (res: { json(): unknown }) => (res.json() as unknown[])[0];
+    const totalsFor10th = async () => day(await dailyTotals(ctx.app, "c_1", "2026-02-10", "2026-02-10"));
+
+    it("отдаёт gross, discount и net; total равен gross", async () => {
+      await postWebhook(ctx.app, apiOrder({ amount: 2500, discountPercent: 16.5, amountPaid: 2087.5 }));
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 2500, gross: 2500, discount: 412.5, net: 2087.5 });
+    });
+
+    it("суммирует оплаченное с точностью до копейки", async () => {
+      // 2305.47 и 1192.6 не представимы точно в двоичном виде
+      await postWebhook(ctx.app, apiOrder({ amount: 3441, discountPercent: 33, amountPaid: 2305.47 }));
+      await postWebhook(ctx.app, apiOrder({ amount: 1780, discountPercent: 33, amountPaid: 1192.6 }));
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 5221, gross: 5221, discount: 1722.93, net: 3498.07 });
+    });
+
+    it("заказ без полей скидки (старый формат) считается оплаченным полностью", async () => {
+      await postWebhook(ctx.app, apiOrder({ amount: 700 }));
+      await postWebhook(ctx.app, apiOrder({ amount: 300, discountPercent: 10, amountPaid: 270 }));
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 1000, gross: 1000, discount: 30, net: 970 });
+    });
+
+    it("принимает скидку и оплаченную сумму строками", async () => {
+      await postWebhook(ctx.app, apiOrder({ amount: "6090.00", discountPercent: "7", amountPaid: "5663.70" }));
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 6090, gross: 6090, discount: 426.3, net: 5663.7 });
+    });
+
+    it("без amountPaid считает оплаченное по discountPercent", async () => {
+      await postWebhook(ctx.app, apiOrder({ amount: 2500, discountPercent: "16.5" }));
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 2500, gross: 2500, discount: 412.5, net: 2087.5 });
+    });
+
+    it("новая версия заказа меняет скидку", async () => {
+      const o = apiOrder({ amount: 1000, discountPercent: 0, amountPaid: 1000 });
+      await postWebhook(ctx.app, o);
+      await postWebhook(ctx.app, { ...o, discountPercent: 10, amountPaid: 900, updatedAt: "2026-02-10T13:00:00Z" });
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 1000, gross: 1000, discount: 100, net: 900 });
+    });
+
+    it("refunded и pending со скидкой не учитываются", async () => {
+      await postWebhook(ctx.app, apiOrder({ amount: 500, discountPercent: 10, amountPaid: 450 }));
+      await postWebhook(ctx.app, apiOrder({ amount: 900, discountPercent: 10, amountPaid: 810, status: "refunded" }));
+      await postWebhook(ctx.app, apiOrder({ amount: 700, discountPercent: 10, amountPaid: 630, status: "pending" }));
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 500, gross: 500, discount: 50, net: 450 });
+    });
   });
 });

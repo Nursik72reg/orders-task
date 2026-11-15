@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromKop, parseRub, toKop } from "../src/utils/money.js";
+import { applyDiscount, fromKop, parsePercent, parseRub, toKop } from "../src/utils/money.js";
 
 describe("parseRub", () => {
   it("принимает число и строку с числом", () => {
@@ -50,5 +50,33 @@ describe("toKop / fromKop", () => {
   it("копейки в рубли", () => {
     expect(fromKop(250000)).toBe(2500);
     expect(fromKop(1099)).toBe(10.99);
+  });
+});
+
+describe("скидка", () => {
+  it("parsePercent принимает число и строку от 0 до 100", () => {
+    expect(parsePercent(0)).toBe(0);
+    expect(parsePercent("7")).toBe(7);
+    expect(parsePercent(16.5)).toBe(16.5);
+    expect(parsePercent(100)).toBe(100);
+  });
+
+  it("parsePercent отклоняет мусор и значения вне диапазона", () => {
+    expect(() => parsePercent("")).toThrow();
+    expect(() => parsePercent("abc")).toThrow();
+    expect(() => parsePercent(-1)).toThrow();
+    expect(() => parsePercent(100.5)).toThrow();
+  });
+
+  it("applyDiscount считает сумму после скидки в копейках", () => {
+    expect(applyDiscount(250000, 16.5)).toBe(208750);
+    expect(applyDiscount(344100, 33)).toBe(230547);
+    expect(applyDiscount(1000, 0)).toBe(1000);
+    expect(applyDiscount(1000, 100)).toBe(0);
+  });
+
+  it("applyDiscount округляет до ближайшей копейки", () => {
+    expect(applyDiscount(101, 33)).toBe(68); // 67.67
+    expect(applyDiscount(100, 0.4)).toBe(100); // 99.6
   });
 });

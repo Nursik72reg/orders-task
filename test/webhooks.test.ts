@@ -55,4 +55,23 @@ describe("POST /webhooks/order", () => {
     const res = await postWebhook(ctx.app, { id: "x" });
     expect(res.statusCode).toBe(400);
   });
+
+  it("невалидные поля скидки — 400", async () => {
+    expect((await postWebhook(ctx.app, apiOrder({ amountPaid: "abc" }))).statusCode).toBe(400);
+    expect((await postWebhook(ctx.app, apiOrder({ amountPaid: -1 }))).statusCode).toBe(400);
+    expect((await postWebhook(ctx.app, apiOrder({ amount: 100, amountPaid: 100.01 }))).statusCode).toBe(400);
+    expect((await postWebhook(ctx.app, apiOrder({ discountPercent: 101 }))).statusCode).toBe(400);
+    expect((await postWebhook(ctx.app, apiOrder({ discountPercent: "много" }))).statusCode).toBe(400);
+  });
+
+  it("та же версия заказа дозаполняет оплаченную сумму, если её не было", async () => {
+    // Заказ сохранён до появления скидок в API; повторный синк отдаёт его с тем же updatedAt, но уже со скидкой
+    const o = apiOrder({ amount: 1000 });
+    await postWebhook(ctx.app, o);
+    const withDiscount = { ...o, discountPercent: 10, amountPaid: 900 };
+    expect((await postWebhook(ctx.app, withDiscount)).json()).toEqual({ result: "updated" });
+    expect((await postWebhook(ctx.app, withDiscount)).json()).toEqual({ result: "stale" });
+    const { rows } = await ctx.db.query(`SELECT amount_paid_kop FROM orders WHERE id = $1`, [o.id]);
+    expect(Number(rows[0].amount_paid_kop)).toBe(90000);
+  });
 });
