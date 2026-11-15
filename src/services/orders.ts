@@ -47,13 +47,26 @@ export class OrdersService {
         id: o.id,
         customerId: o.customerId,
         amountKop,
-        amountPaidKop: paidKop(amountKop, o.amountPaid, o.discountPercent),
+        amountPaidKop: this.paidKop(amountKop, o),
         status: o.status,
         createdAt: parseUtc(o.createdAt),
         updatedAt: parseUtc(o.updatedAt),
       };
     } catch (e) {
       throw new ValidationError((e as Error).message);
+    }
+  }
+
+  /**
+   * Оплаченная сумма нужна только для оплаченных заказов. Если в возврате или неоплаченном заказе
+   * поля скидки невалидны, версию всё равно применяем (сумма неизвестна): потерять смену статуса хуже.
+   */
+  private paidKop(amountKop: number, o: z.infer<typeof ExternalOrder>): number | null {
+    try {
+      return paidKop(amountKop, o.amountPaid, o.discountPercent);
+    } catch (e) {
+      if (o.status === "paid") throw e;
+      return null;
     }
   }
 

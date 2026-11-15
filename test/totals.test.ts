@@ -36,6 +36,21 @@ describe("GET /customers/:id/daily-totals", () => {
     ]);
   });
 
+  it("осенний переход в таймзоне к западу от UTC", async () => {
+    // America/New_York: до 01.11.2026 — UTC-4, после — UTC-5
+    ctx.api.customers.set("c_ny", "America/New_York");
+    await postWebhook(ctx.app, apiOrder({ customerId: "c_ny", amount: 100, createdAt: "2026-10-31T03:30:00Z" })); // 23:30 30-го
+    await postWebhook(ctx.app, apiOrder({ customerId: "c_ny", amount: 200, createdAt: "2026-11-02T04:30:00Z" })); // 23:30 1-го
+
+    const res = await dailyTotals(ctx.app, "c_ny", "2026-10-30", "2026-11-02");
+    expect(res.json().map((d: { date: string; total: number }) => [d.date, d.total])).toEqual([
+      ["2026-10-30", 100],
+      ["2026-10-31", 0],
+      ["2026-11-01", 200],
+      ["2026-11-02", 0],
+    ]);
+  });
+
   it("не учитывает pending и refunded", async () => {
     await postWebhook(ctx.app, apiOrder({ amount: 500 }));
     await postWebhook(ctx.app, apiOrder({ amount: 700, status: "pending" }));
@@ -107,6 +122,14 @@ describe("GET /customers/:id/daily-totals", () => {
       await postWebhook(ctx.app, o);
       await postWebhook(ctx.app, { ...o, discountPercent: 10, amountPaid: 900, updatedAt: "2026-02-10T13:00:00Z" });
       expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 1000, gross: 1000, discount: 100, net: 900 });
+    });
+
+    it("новая версия без полей скидки сбрасывает оплаченную сумму", async () => {
+      // Побеждает самая свежая версия целиком: если скидки в ней нет, прежнюю не достраиваем
+      const o = apiOrder({ amount: 1000 });
+      await postWebhook(ctx.app, { ...o, discountPercent: 10, amountPaid: 900 });
+      await postWebhook(ctx.app, { ...o, updatedAt: "2026-02-10T13:00:00Z" });
+      expect(await totalsFor10th()).toEqual({ date: "2026-02-10", total: 1000, gross: 1000, discount: 0, net: 1000 });
     });
 
     it("refunded и pending со скидкой не учитываются", async () => {

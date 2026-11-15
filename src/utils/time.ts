@@ -12,18 +12,30 @@ export function parseUtc(raw: unknown): Date {
   return d;
 }
 
+// Создание Intl.DateTimeFormat дорогое, а смещение теперь считается для каждого заказа — держим по одному на таймзону
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  let f = formatters.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    formatters.set(timeZone, f);
+  }
+  return f;
+}
+
 /** Смещение таймзоны относительно UTC в минутах в момент `at` (Europe/Moscow → 180). */
 export function tzOffsetMinutes(timeZone: string, at: Date): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(at);
+  const parts = formatterFor(timeZone).formatToParts(at);
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
   return Math.round((asUtc - Math.floor(at.getTime() / 1000) * 1000) / 60_000);
@@ -42,7 +54,7 @@ export function localDate(at: Date, timeZone: string): string {
   return dateAtOffset(at, tzOffsetMinutes(timeZone, at));
 }
 
-const DATE_RE =/^\d{4}-\d{2}-\d{2}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isCalendarDate(s: unknown): s is string {
   if (typeof s !== "string" || !DATE_RE.test(s)) return false;

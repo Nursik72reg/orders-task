@@ -58,6 +58,7 @@ describe("POST /webhooks/order", () => {
 
   it("невалидные поля скидки — 400", async () => {
     expect((await postWebhook(ctx.app, apiOrder({ amountPaid: "abc" }))).statusCode).toBe(400);
+    expect((await postWebhook(ctx.app, apiOrder({ amountPaid: "" }))).statusCode).toBe(400);
     expect((await postWebhook(ctx.app, apiOrder({ amountPaid: -1 }))).statusCode).toBe(400);
     expect((await postWebhook(ctx.app, apiOrder({ amount: 100, amountPaid: 100.01 }))).statusCode).toBe(400);
     expect((await postWebhook(ctx.app, apiOrder({ discountPercent: 101 }))).statusCode).toBe(400);
@@ -73,5 +74,15 @@ describe("POST /webhooks/order", () => {
     expect((await postWebhook(ctx.app, withDiscount)).json()).toEqual({ result: "stale" });
     const { rows } = await ctx.db.query(`SELECT amount_paid_kop FROM orders WHERE id = $1`, [o.id]);
     expect(Number(rows[0].amount_paid_kop)).toBe(90000);
+  });
+
+  it("возврат применяется, даже если поля скидки в нём невалидны", async () => {
+    // Скидка нужна только для оплаченных заказов: из-за мусора в ней нельзя терять смену статуса
+    const o = apiOrder({ amount: 1000, discountPercent: 10, amountPaid: 900 });
+    await postWebhook(ctx.app, o);
+    const refund = { ...o, status: "refunded", amountPaid: "abc", updatedAt: "2026-02-11T12:00:00Z" };
+    expect((await postWebhook(ctx.app, refund)).json()).toEqual({ result: "updated" });
+    const { rows } = await ctx.db.query(`SELECT status, amount_paid_kop FROM orders WHERE id = $1`, [o.id]);
+    expect(rows[0]).toEqual({ status: "refunded", amount_paid_kop: null });
   });
 });

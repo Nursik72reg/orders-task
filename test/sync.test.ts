@@ -53,4 +53,17 @@ describe("POST /sync", () => {
     expect(paid.get(withDiscount.id)).toBe("230547");
     expect(paid.get(legacy.id)).toBeNull();
   });
+
+  it("повторный синк дозаполняет оплаченную сумму у заказов, сохранённых до появления скидок", async () => {
+    const legacy = apiOrder({ amount: 1000 });
+    ctx.api.pages.set(null, { items: [legacy], nextCursor: null });
+    await ctx.app.inject({ method: "POST", url: "/sync" });
+
+    // Та же версия заказа (updatedAt не менялся), но API теперь отдаёт скидку
+    ctx.api.pages.set(null, { items: [{ ...legacy, discountPercent: 10, amountPaid: 900 }], nextCursor: null });
+    const res = await ctx.app.inject({ method: "POST", url: "/sync" });
+    expect(res.json()).toMatchObject({ applied: 1, stale: 0 });
+    const { rows } = await ctx.db.query(`SELECT amount_paid_kop FROM orders WHERE id = $1`, [legacy.id]);
+    expect(rows[0].amount_paid_kop).toBe("90000");
+  });
 });

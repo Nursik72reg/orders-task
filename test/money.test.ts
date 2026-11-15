@@ -13,6 +13,15 @@ describe("parseRub", () => {
     expect(() => parseRub(null)).toThrow();
     expect(() => parseRub(-1)).toThrow();
   });
+
+  it("отклоняет пустую строку и не десятичную запись", () => {
+    // Number("") === 0 и Number("0x10") === 16 — такие строки не должны превращаться в суммы
+    expect(() => parseRub("")).toThrow();
+    expect(() => parseRub("   ")).toThrow();
+    expect(() => parseRub("0x10")).toThrow();
+    expect(() => parseRub("1e3")).toThrow();
+    expect(() => parseRub("12,50")).toThrow();
+  });
 });
 
 describe("toKop / fromKop", () => {
@@ -78,5 +87,11 @@ describe("скидка", () => {
   it("applyDiscount округляет до ближайшей копейки", () => {
     expect(applyDiscount(101, 33)).toBe(68); // 67.67
     expect(applyDiscount(100, 0.4)).toBe(100); // 99.6
+  });
+
+  it("applyDiscount округляет ровно полкопейки вверх", () => {
+    // 750 * 0.866 = 649.5; в float это 649.4999999999999
+    expect(applyDiscount(750, 13.4)).toBe(650);
+    expect(applyDiscount(1, 50)).toBe(1); // 0.5
   });
 });
