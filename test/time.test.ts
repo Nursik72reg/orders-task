@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateAtOffset, datesBetween, isCalendarDate, parseUtc, tzOffsetMinutes } from "../src/utils/time.js";
+import { dateAtOffset, datesBetween, isCalendarDate, localDate, parseUtc, tzOffsetMinutes } from "../src/utils/time.js";
 
 describe("parseUtc", () => {
   it("строка с Z", () => {
@@ -23,6 +23,22 @@ describe("tzOffsetMinutes", () => {
     expect(tzOffsetMinutes("Europe/Moscow", at)).toBe(180);
     expect(tzOffsetMinutes("Asia/Novosibirsk", at)).toBe(420);
     expect(tzOffsetMinutes("America/New_York", at)).toBe(-300);
+  });
+});
+
+describe("localDate", () => {
+  it("учитывает смещение, действующее в момент события", () => {
+    // Europe/Berlin переходит на летнее время 29.03.2026 в 01:00 UTC
+    expect(localDate(new Date("2026-03-28T22:30:00Z"), "Europe/Berlin")).toBe("2026-03-28"); // +1 → 23:30
+    expect(localDate(new Date("2026-03-29T22:30:00Z"), "Europe/Berlin")).toBe("2026-03-30"); // +2 → 00:30
+    // и обратно, на зимнее — 25.10.2026
+    expect(localDate(new Date("2026-10-24T22:30:00Z"), "Europe/Berlin")).toBe("2026-10-25"); // +2 → 00:30
+    expect(localDate(new Date("2026-10-25T22:30:00Z"), "Europe/Berlin")).toBe("2026-10-25"); // +1 → 23:30
+  });
+
+  it("таймзоны без перехода и к западу от UTC", () => {
+    expect(localDate(new Date("2026-02-10T21:30:00Z"), "Europe/Moscow")).toBe("2026-02-11");
+    expect(localDate(new Date("2026-02-10T03:00:00Z"), "America/New_York")).toBe("2026-02-09");
   });
 });
 

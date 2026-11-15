@@ -34,7 +34,15 @@ export function dateAtOffset(at: Date, offsetMinutes: number): string {
   return new Date(at.getTime() + offsetMinutes * 60_000).toISOString().slice(0, 10);
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * Календарная дата (YYYY-MM-DD) момента `at` в таймзоне `timeZone`.
+ * Смещение берётся на сам момент `at`: у таймзон с переходом на летнее время оно меняется в течение года.
+ */
+export function localDate(at: Date, timeZone: string): string {
+  return dateAtOffset(at, tzOffsetMinutes(timeZone, at));
+}
+
+const DATE_RE =/^\d{4}-\d{2}-\d{2}$/;
 
 export function isCalendarDate(s: unknown): s is string {
   if (typeof s !== "string" || !DATE_RE.test(s)) return false;
