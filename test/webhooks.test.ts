@@ -31,6 +31,26 @@ describe("POST /webhooks/order", () => {
     expect(res.json()).toEqual({ result: "updated" });
   });
 
+  it("параллельные события по одному заказу: остаётся самая свежая версия", async () => {
+    // Внешняя система шлёт вебхуки параллельно, с повторами и не по порядку
+    const orders = Array.from({ length: 20 }, () => apiOrder({ status: "paid", updatedAt: "2026-02-10T12:00:00Z" }));
+    await Promise.all(
+      orders.flatMap((o) => {
+        const refunded = { ...o, status: "refunded", updatedAt: "2026-02-12T12:00:00Z" };
+        return [postWebhook(ctx.app, refunded), postWebhook(ctx.app, o), postWebhook(ctx.app, refunded), postWebhook(ctx.app, o)];
+      }),
+    );
+    const { rows } = await ctx.db.query(`SELECT status, count(*)::int AS n FROM orders GROUP BY status`);
+    expect(rows).toEqual([{ status: "refunded", n: 20 }]);
+  });
+
+  it("параллельные повторы одного события: создаётся один раз", async () => {
+    const o = apiOrder();
+    const results = await Promise.all(Array.from({ length: 10 }, () => postWebhook(ctx.app, o)));
+    const counts = results.map((r) => r.json().result).sort();
+    expect(counts).toEqual(["created", ...Array(9).fill("stale")]);
+  });
+
   it("невалидное тело — 400", async () => {
     const res = await postWebhook(ctx.app, { id: "x" });
     expect(res.statusCode).toBe(400);

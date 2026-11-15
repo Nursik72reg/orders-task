@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ValidationError } from "../errors.js";
-import type { Order, OrdersRepository } from "../repositories/orders.js";
+import type { Order, OrdersRepository, SaveResult } from "../repositories/orders.js";
 import { parseRub, toKop } from "../utils/money.js";
 import { parseUtc } from "../utils/time.js";
 
@@ -14,7 +14,7 @@ const ExternalOrder = z.object({
   updatedAt: z.string(),
 });
 
-export type ApplyResult = "created" | "updated" | "stale";
+export type ApplyResult = SaveResult;
 
 export class OrdersService {
   constructor(private readonly orders: OrdersRepository) {}
@@ -40,13 +40,9 @@ export class OrdersService {
   /**
    * Применяет версию заказа (из синка или вебхука).
    * Вебхуки приходят с повторами и не по порядку, поэтому версию сохраняем,
-   * только если она новее уже сохранённой (по updatedAt).
+   * только если она новее уже сохранённой (по updatedAt). Сравнение и запись атомарны — см. saveIfNewer.
    */
   async apply(raw: unknown): Promise<ApplyResult> {
-    const incoming = this.normalize(raw);
-    const current = await this.orders.get(incoming.id);
-    if (current && current.updatedAt.getTime() >= incoming.updatedAt.getTime()) return "stale";
-    await this.orders.save(incoming);
-    return current ? "updated" : "created";
+    return this.orders.saveIfNewer(this.normalize(raw));
   }
 }

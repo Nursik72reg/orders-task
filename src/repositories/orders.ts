@@ -9,6 +9,8 @@ export interface Order {
   updatedAt: Date;
 }
 
+export type SaveResult = "created" | "updated" | "stale";
+
 interface Row {
   id: string;
   customer_id: string;
@@ -30,13 +32,13 @@ const fromRow = (r: Row): Order => ({
 export class OrdersRepository {
   constructor(private readonly db: Db) {}
 
-  async get(id: string): Promise<Order | null> {
-    const { rows } = await this.db.query<Row>(`SELECT * FROM orders WHERE id = $1`, [id]);
-    return rows[0] ? fromRow(rows[0]) : null;
-  }
-
-  async save(o: Order): Promise<void> {
-    await this.db.query(
+  /**
+   * Сохраняет версию заказа, только если она новее сохранённой (по updated_at).
+   * Проверка и запись — один запрос: параллельные вебхуки по одному заказу
+   * не могут затереть свежую версию устаревшей.
+   */
+  async saveIfNewer(o: Order): Promise<SaveResult> {
+    const { rows } = await this.db.query<{ inserted: boolean }>(
       `INSERT INTO orders (id, customer_id, amount_kop, status, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (id) DO UPDATE SET
@@ -44,9 +46,13 @@ export class OrdersRepository {
          amount_kop  = excluded.amount_kop,
          status      = excluded.status,
          created_at  = excluded.created_at,
-         updated_at  = excluded.updated_at`,
+         updated_at  = excluded.updated_at
+       WHERE orders.updated_at < excluded.updated_at
+       RETURNING (xmax = 0) AS inserted`, // xmax = 0 только у вставленной строки, у обновлённой — нет
       [o.id, o.customerId, o.amountKop, o.status, o.createdAt, o.updatedAt],
     );
+    if (rows.length === 0) return "stale";
+    return rows[0].inserted ? "created" : "updated";
   }
 
   /** Оплаченные заказы клиента, созданные в [from, to). */
